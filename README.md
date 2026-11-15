@@ -1,42 +1,32 @@
-# repo-template
+# Trilobot Scout
 
-A starting point for new repos with security checks already wired up. Replace this README after creating a repo from it.
+Give a [Pimoroni Trilobot](https://shop.pimoroni.com/products/trilobot) a goal in plain language and let it work its way there. A Claude vision model looks through the robot's camera and picks one small move at a time; local code on the Raspberry Pi decides whether each move is allowed to happen, using the front ultrasonic sensor as a reflex. The robot has no wheel encoders, so moves are timed.
 
-## Create a repo
+The full brief and build plan are in the [starter handoff doc](https://claude.ai/artifact/UexV6vCbBYpXvMGUFC56x4).
+
+## Status
+
+Milestone 1 of the build plan: the project skeleton, with nothing yet driving the robot.
+
+- `scout/robot_logic.py`: hardware-free helpers (distance validity, differential mixing, LED colour hysteresis, avoidance decision), copied from the earlier [trilobot](https://github.com/thedownwardspiral/trilobot) repo.
+- `scout/fake_robot.py`: `FakeTrilobot`, a stand-in for `trilobot.Trilobot` with the same methods, signatures and constants, plus a small simulation with its own clock. `sleep(seconds)` advances simulated time and moves the robot at its current motor speeds, and `now()` reads the clock, so motion code that takes injectable sleep and clock functions can be tested without hardware or real waiting. Tests can also place an obstacle, queue sensor readings, press buttons, read back the LEDs and underlights, and check the log of calls (for example, that `stop()` was the last motor call).
+
+Next is milestone 2: the reflex layer and timed motion, tested against the fake first.
+
+## Running the tests
+
+The tests use only the Python standard library. From the repo root:
 
 ```bash
-gh repo create my-repo --public --template thedownwardspiral/repo-template --clone
-cd my-repo
-.github/setup-repo.sh thedownwardspiral/my-repo
-pre-commit install
+python3 -m unittest
 ```
 
-Use `--private` instead of `--public` for a private repo. The workflows detect visibility on their own.
+`tests/test_fake_robot.py` includes a parity check that compares `FakeTrilobot` against the real `trilobot.Trilobot` class. It runs only when the `trilobot` library can be imported, which is true in the Pimoroni virtualenv on the robot, and is skipped elsewhere. It never constructs the real class, because that touches the hardware.
 
-`setup-repo.sh` turns on Dependabot alerts and security updates, turns on secret scanning, push protection and private vulnerability reporting (public repos only), and applies the "Protect main" ruleset. The ruleset requires a PR to change `main`, blocks force pushes and deletion, requires the security checks to pass, and requires every review thread to be resolved. It needs no approvals, so a sole maintainer can still merge. Draft PRs cannot be merged until marked ready for review; GitHub enforces that on its own.
+## Repo setup
 
-## What runs
+The security workflows, Dependabot config, branch ruleset and pre-commit secret scan come from [repo-template](https://github.com/thedownwardspiral/repo-template); its README explains what each one does. After creating the GitHub repo, run `.github/setup-repo.sh thedownwardspiral/trilobot-scout` once, and `pre-commit install` in each clone.
 
-`.github/workflows/security.yml` runs on every PR, on pushes to `main`, and weekly:
+## Licence
 
-| Job | Public repo | Private repo | Checks |
-| --- | --- | --- | --- |
-| `gitleaks` | runs | runs | Secrets in commits; full history on the weekly run |
-| `dependency-review` | runs (PRs) | skipped | PRs that add vulnerable dependencies |
-| `codeql` | runs | skipped | Static analysis; languages are detected automatically |
-| `semgrep` | skipped | runs | Static analysis (Semgrep CE) |
-| `osv-scanner` | skipped | runs | Known vulnerabilities in dependency files |
-
-Private repos on a personal account cannot use CodeQL, dependency review or GitHub secret scanning, so Semgrep CE and OSV-Scanner stand in for them. A skipped job counts as passing, so one ruleset works for both.
-
-`zizmor.yml` lints the workflow files whenever `.github/` changes.
-
-## After creating a repo
-
-- **Dependencies:** add an entry for each package manager to `.github/dependabot.yml`. Commit lockfiles: OSV-Scanner checks only the versions written in the repo.
-- **CodeQL:** detects Python, JavaScript/TypeScript, Ruby, Java/Kotlin and C#. Languages that need a build step (Go, C/C++, Swift) must be added to the `codeql` job by hand. Detection reads GitHub's language stats for the default branch, so a PR that introduces a language is scanned for it only after it merges.
-- **Secrets:** `pre-commit install` scans each commit locally with gitleaks before it is created. For a private repo this is the only check that runs before a secret reaches GitHub.
-
-## Pinning
-
-Every action is pinned to a commit SHA, and the Semgrep and OSV-Scanner images to digests. Dependabot updates the action pins. The image digests and the pre-commit hook must be bumped by hand (`pre-commit autoupdate --freeze` handles the hook).
+GPL-3.0, the same as the trilobot repo that `robot_logic.py` comes from. See [LICENSE](LICENSE).
