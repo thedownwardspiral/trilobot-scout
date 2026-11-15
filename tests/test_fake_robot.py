@@ -210,6 +210,22 @@ class TestDistanceSensor(unittest.TestCase):
         bot = FakeTrilobot(obstacle_cm=60)
         self.assertEqual(bot.read_distance(timeout=25, samples=1, offset=0), 60.0)
 
+    def test_zero_samples_or_timeout_takes_no_measurement(self):
+        bot = FakeTrilobot(obstacle_cm=60, read_time_s=0.03)
+        bot.queue_distances(10.0)
+        self.assertEqual(bot.read_distance(samples=0), NO_READING)
+        self.assertEqual(bot.read_distance(timeout=0), NO_READING)
+        self.assertEqual(bot.read_distance(timeout=-5), NO_READING)
+        self.assertEqual(bot.now(), 0.0)
+        self.assertEqual(bot.read_distance(), 10.0)  # the queued reading was not used up
+
+    def test_timeout_limits_the_range(self):
+        # 17.15 cm of range per ms of timeout
+        bot = FakeTrilobot(obstacle_cm=100, max_range_cm=400)
+        self.assertEqual(bot.read_distance(timeout=6), 100.0)  # 102.9 cm of range: just enough
+        self.assertEqual(bot.read_distance(timeout=5), NO_READING)  # 85.75 cm of range
+        self.assertEqual(bot.read_distance(timeout=50), 100.0)
+
     def test_read_time_advances_the_clock(self):
         bot = FakeTrilobot(read_time_s=0.03)
         bot.read_distance()

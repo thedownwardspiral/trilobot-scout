@@ -52,6 +52,11 @@ NUM_MOTORS = 2
 
 NO_READING = -999  # what read_distance() returns when no echo arrives
 
+# The real read_distance() discards echoes slower than its timeout. Sound
+# travels 0.0343 cm/us and the echo covers the distance twice, so each ms of
+# timeout allows 17.15 cm of range.
+TIMEOUT_RANGE_CM_PER_MS = 343 * 100 / 1000 / 2
+
 MOTOR_METHODS = frozenset({
     'set_motor_speed', 'set_motor_speeds', 'set_left_speed', 'set_right_speed',
     'forward', 'backward', 'turn_left', 'turn_right',
@@ -284,12 +289,20 @@ class FakeTrilobot:
 
     @_logged
     def read_distance(self, timeout=50, samples=3, offset=190000):
-        """Distance ahead in cm, or NO_READING (-999) when nothing is in range."""
+        """Distance ahead in cm, or NO_READING (-999) when nothing is in range.
+
+        Like the real sensor, a timeout or sample count of zero or less takes
+        no measurement, and an echo must return within `timeout` ms, which
+        caps the range at timeout * TIMEOUT_RANGE_CM_PER_MS.
+        """
+        if samples <= 0 or timeout <= 0:
+            return NO_READING
         if self.read_time_s:
             self.sleep(self.read_time_s)
         if self._distance_queue:
             return self._distance_queue.pop(0)
-        if self.obstacle_cm is None or self.obstacle_cm > self.max_range_cm:
+        max_range = min(self.max_range_cm, timeout * TIMEOUT_RANGE_CM_PER_MS)
+        if self.obstacle_cm is None or self.obstacle_cm >= max_range:
             return NO_READING
         return float(self.obstacle_cm)
 
