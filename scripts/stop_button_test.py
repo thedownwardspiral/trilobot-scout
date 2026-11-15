@@ -12,7 +12,7 @@ the press stopped, and how far into it.
 
 import argparse
 
-from hardware import build, confirm
+from hardware import build, confirm, positive
 
 from scout.fake_robot import BUTTON_A
 from scout.motion import Outcome
@@ -21,15 +21,19 @@ from scout.motion import Outcome
 def main():
     parser = argparse.ArgumentParser(description=__doc__.strip().splitlines()[0])
     parser.add_argument('--turn', action='store_true', help="turn on the spot instead of driving forward")
-    parser.add_argument('--moves', type=int, default=8, help="most moves to make before giving up")
+    parser.add_argument('--moves', type=positive(int), default=8, help="most moves to make before giving up")
     parser.add_argument('--fake', type=float, metavar='SECONDS',
                         help="run against a simulated robot that presses Button A at this time")
     args = parser.parse_args()
 
-    kind = "90 degree turns" if args.turn else "30 cm forward drives (the wall veto stays on)"
+    if args.turn:
+        plan = f"up to {args.moves} 90 degree turns on the spot. Keep clear space around it."
+    else:
+        plan = (f"up to {args.moves} 30 cm forward drives, {args.moves * 30 / 100:g} m in all if you "
+                "never press. The wall veto stays on, but it cannot see drops such as a table "
+                "edge, so give it that much clear floor ahead.")
     if args.fake is None and not confirm(
-            f"The robot will make up to {args.moves} {kind}. Press Button A while it is "
-            "moving, not between moves. Keep clear space around it."):
+            f"The robot will make {plan} Press Button A while it is moving, not between moves."):
         return
 
     robot, mover, _ = build(fake_obstacle_cm=None if args.fake is None else 500)

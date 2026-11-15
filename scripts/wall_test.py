@@ -13,21 +13,27 @@ backs away for the next try. Press Button A at any time to halt and end the test
 import argparse
 import statistics
 
-from hardware import build, confirm, describe
+from hardware import build, confirm, describe, positive
 
 from scout.motion import Outcome
 from scout.robot_logic import is_valid_distance
 
 SETTLE_S = 0.5
 IMPLAUSIBLE_CM = 400  # beyond the sensor's rated range: likely a lost echo
+REFLEX_STOPS = (Outcome.CUT_SHORT, Outcome.REFUSED)
+
+
+def plausible(reading):
+    return is_valid_distance(reading) and reading <= IMPLAUSIBLE_CM
 
 
 def settled_distance(mover, samples=5):
-    """Median of the valid readings once the robot has stopped rolling."""
+    """Median of the plausible readings once the robot has stopped rolling.
+    Lost or implausible readings stay in the raw log but are left out here."""
     mover.sleep(SETTLE_S)
     readings = [mover.robot.read_distance() for _ in range(samples)]
-    valid = [r for r in readings if is_valid_distance(r)]
-    return statistics.median(valid) if valid else None
+    usable = [r for r in readings if plausible(r)]
+    return statistics.median(usable) if usable else None
 
 
 def one_try(mover, max_hops):
@@ -53,10 +59,11 @@ def back_off(mover, distance_cm):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__.strip().splitlines()[0])
-    parser.add_argument('--tries', type=int, default=10)
-    parser.add_argument('--back-off-cm', type=float, default=60,
+    parser.add_argument('--tries', type=positive(int), default=10)
+    parser.add_argument('--back-off-cm', type=positive(float), default=60,
                         help="how far to reverse between tries (backward moves are unprotected)")
-    parser.add_argument('--max-hops', type=int, default=20, help="give up a try after this many hops")
+    parser.add_argument('--max-hops', type=positive(int), default=20,
+                        help="give up a try after this many hops")
     parser.add_argument('--fake', type=float, metavar='CM',
                         help="run against a simulated robot this far from a wall")
     args = parser.parse_args()
@@ -78,11 +85,17 @@ def main():
                 print(f"  Halted: {last.reason}. Ending the test.")
                 break
             distance = settled_distance(mover)
-            passed = distance is not None and distance >= mover.settings.threshold_cm
+            # A try only counts when the reflex stopped it: reaching the hop
+            # limit says nothing about stopping at the wall
+            stopped_by_reflex = last.outcome in REFLEX_STOPS
+            passed = stopped_by_reflex and distance is not None and distance >= mover.settings.threshold_cm
             results.append((n, last.outcome, distance, passed))
             raw = [r for _, r in log.readings[first_reading:]]
-            odd = [r for r in raw if not is_valid_distance(r) or r > IMPLAUSIBLE_CM]
-            print(f"  Settled at {describe(distance)}: {'PASS' if passed else 'FAIL'}. "
+            odd = [r for r in raw if not plausible(r)]
+            verdict = 'PASS' if passed else 'FAIL'
+            if not stopped_by_reflex:
+                verdict += f" (hop limit of {args.max_hops} reached before the reflex stopped a drive)"
+            print(f"  Settled at {describe(distance)}: {verdict}. "
                   f"{len(raw)} readings, {len(odd)} lost or implausible{': ' + str(odd) if odd else ''}")
             if n < args.tries:
                 back = back_off(mover, args.back_off_cm)

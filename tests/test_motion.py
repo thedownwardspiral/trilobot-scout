@@ -120,13 +120,25 @@ class TestDistanceWatch(unittest.TestCase):
         self.assertEqual(bot.last_motor_call(), 'stop')
 
     def test_a_full_move_that_ends_at_the_limit_counts_as_moved(self):
-        # Polls at 0.4, 0.8 and 1.2 s read 50, 40 and 30 cm; the move's 1.2 s are up at the last
+        # Reads at 0 and 0.4 s see 60 and 50 cm. The poll at 0.8 s sees 40 cm. The
+        # last 0.4 s is one poll long, so it takes no read, and the move ends at 30 cm.
         settings = Settings(poll_interval_s=0.4, sensor_read_s=0.0, stopping_margin_cm=0)
         bot, mover = make(settings, obstacle_cm=60)
         result = mover.drive(30)
         self.assertEqual(result.outcome, Outcome.MOVED)
-        self.assertAlmostEqual(result.distance_cm, 30)
+        self.assertAlmostEqual(result.distance_cm, 40)
+        self.assertAlmostEqual(bot.obstacle_cm, 30)
         self.assertEqual(mover.drive(10).outcome, Outcome.REFUSED)
+
+    def test_reads_never_run_the_motors_past_the_move_time(self):
+        # A read blocks with the motors on, so a read at the end would add its time to the move
+        for distance in (0.5, 1, 2, 3.3, 7, 20, 29.9, 30):
+            with self.subTest(distance=distance):
+                bot, mover = make(obstacle_cm=300)
+                result = mover.drive(distance)
+                self.assertEqual(result.outcome, Outcome.MOVED)
+                self.assertAlmostEqual(result.seconds, distance / 25.0)
+                self.assertAlmostEqual(bot.distance_travelled_cm, distance)
 
     def test_something_appearing_mid_move_cuts_it_short(self):
         bot, mover = make()
@@ -169,7 +181,7 @@ class TestMissingEcho(unittest.TestCase):
     def test_no_echo_after_a_close_reading_is_blocked_across_moves(self):
         bot, mover = make()
         bot.queue_distances(55.0, 54.0)
-        mover.drive(1.5)  # one poll: sees 55 at the start, then 54; remembers 54
+        mover.drive(3)  # one read mid-move: sees 55 at the start, then 54; remembers 54
         self.assertEqual(mover.reflex.last_valid_cm, 54.0)
         bot.queue_distances(NO_READING)
         result = mover.drive(20)
@@ -256,6 +268,18 @@ class TestStopSignal(unittest.TestCase):
             self.assertEqual(result.outcome, Outcome.STOPPED)
             self.assertEqual(result.seconds, 0)
         self.assertEqual(bot.motor_calls(), [])
+
+    def test_stop_during_the_first_distance_read_keeps_the_motors_off(self):
+        for raise_stop in (lambda bot, mover: bot.press_button(BUTTON_A),
+                           lambda bot, mover: mover.stop_signal.raise_stop("web stop button")):
+            with self.subTest():
+                bot, mover = make(obstacle_cm=200)  # each read takes 0.03 s
+                bot.at(0.01, lambda: raise_stop(bot, mover))
+                result = mover.drive(20)
+                self.assertEqual(result.outcome, Outcome.STOPPED)
+                self.assertEqual(result.seconds, 0)
+                self.assertEqual(result.distance_cm, 200)
+                self.assertEqual(bot.motor_calls(), [])
 
     def test_signal_stays_raised_until_cleared(self):
         bot, mover = make()

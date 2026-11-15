@@ -6,6 +6,7 @@ Run the scripts from the repo root with the Pimoroni virtualenv's Python, for
 example: ~/.virtualenvs/pimoroni/bin/python scripts/wall_test.py
 """
 
+import argparse
 import os
 import sys
 import time
@@ -14,6 +15,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from scout.fake_robot import FakeTrilobot  # noqa: E402
 from scout.motion import Mover, Settings  # noqa: E402
+from scout.robot_logic import is_valid_distance  # noqa: E402
 
 
 class ReadingLog:
@@ -61,6 +63,16 @@ def confirm(message):
 def describe(reading):
     if reading is None:
         return "none"
-    if reading < 0:
+    if not is_valid_distance(reading):
         return "no echo"
     return f"{reading:.1f} cm"
+
+
+def positive(kind):
+    """An argparse type that accepts only values above zero, converted with kind."""
+    def parse(text):
+        value = kind(text)
+        if value <= 0:
+            raise argparse.ArgumentTypeError(f"must be more than 0, not {text}")
+        return value
+    return parse

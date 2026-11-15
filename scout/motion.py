@@ -96,6 +96,9 @@ class Mover:
             reading = self.robot.read_distance()
             if self.reflex.blocks(reading):
                 return result(Outcome.REFUSED, 0.0, reading, self._blocked_reason(reading))
+            # The read takes time; a stop raised meanwhile must still keep the motors off
+            if self._stop_requested():
+                return result(Outcome.STOPPED, 0.0, reading, f"not started: {self.stop_signal.reason}")
             start_motors = self.robot.forward
         else:
             start_motors = self.robot.backward
@@ -127,7 +130,15 @@ class Mover:
     def _run(self, start_motors, duration_s, watch_ahead, reading):
         """Run the motors for duration_s, checking the stop signal (and the
         path ahead, when watch_ahead) every poll interval. Always ends with
-        stop(); an exception stops the motors and then propagates."""
+        stop(); an exception stops the motors and then propagates.
+
+        A distance read blocks with the motors on, so the last stretch of a
+        watched run, once no more than one poll and one read are left, still
+        checks the stop signal but takes no reads. The run then ends on time,
+        and that stretch is no longer than the gap between two reads, which
+        the stopping margin already covers."""
+        poll_s = self.settings.poll_interval_s
+        last_stretch_s = poll_s + self.settings.sensor_read_s
         outcome = Outcome.MOVED
         began = self.now()
         try:
@@ -136,11 +147,12 @@ class Mover:
                 remaining = duration_s - (self.now() - began)
                 if remaining <= TIME_EPSILON_S:
                     break
-                self.sleep(min(self.settings.poll_interval_s, remaining))
+                read_after = watch_ahead and remaining > last_stretch_s
+                self.sleep(min(poll_s, remaining))
                 if self._stop_requested():
                     outcome = Outcome.STOPPED
                     break
-                if watch_ahead:
+                if read_after:
                     reading = self.robot.read_distance()
                     blocked = self.reflex.blocks(reading)
                     # A move that has already run its full time counts as moved,
