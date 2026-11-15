@@ -6,12 +6,23 @@ The full brief and build plan are in the [starter handoff doc](https://claude.ai
 
 ## Status
 
-Milestone 1 of the build plan: the project skeleton, with nothing yet driving the robot.
+Milestone 1 (skeleton) is done. Milestone 2 (reflex layer and moves, [issue #3](https://github.com/thedownwardspiral/trilobot-scout/issues/3)) is built and tested off the robot; its hardware checks have not been run yet.
 
+- `scout/motion.py`: `Mover`, the one way to move the robot. `drive(distance_cm)` and `turn(degrees)` run the motors for a timed run at one slow fixed speed, clamped to 30 cm and 90 degrees, and always end with `stop()`. Each returns a `MoveResult`: `moved`, `cut_short`, `refused` or `stopped`. The drive and turn rates in `Settings` are placeholders until calibration (milestone 3).
+- `scout/reflex.py`: the safety rules behind the mover. A forward drive is refused, or cut short mid-move, when the sensor reads within 30 cm plus a stopping margin, with missing echoes handled by `robot_logic`. `StopSignal` halts any move; Button A raises it, and it stays raised until cleared.
 - `scout/robot_logic.py`: hardware-free helpers (distance validity, differential mixing, LED colour hysteresis, avoidance decision), copied from the earlier [trilobot](https://github.com/thedownwardspiral/trilobot) repo.
 - `scout/fake_robot.py`: `FakeTrilobot`, a stand-in for `trilobot.Trilobot` with the same methods, signatures and constants, plus a small simulation with its own clock. `sleep(seconds)` advances simulated time and moves the robot at its current motor speeds, and `now()` reads the clock, so motion code that takes injectable sleep and clock functions can be tested without hardware or real waiting. Tests can also place an obstacle, queue sensor readings, press buttons, read back the LEDs and underlights, and check the log of calls (for example, that `stop()` was the last motor call).
 
-Next is milestone 2: the reflex layer and timed motion, tested against the fake first.
+## Hardware checks
+
+Milestone 2 is accepted on the robot with two scripts. They move the robot, so each asks before starting, and Button A stops either one. Run them from the repo root with the Pimoroni virtualenv:
+
+```bash
+~/.virtualenvs/pimoroni/bin/python scripts/wall_test.py
+~/.virtualenvs/pimoroni/bin/python scripts/stop_button_test.py
+```
+
+`wall_test.py` drives at a wall 10 times and passes when every try settles at 30 cm or more; it also reports lost or implausible sensor readings. `stop_button_test.py` makes a run of moves (add `--turn` for turns) and reports whether a Button A press halted one mid-move. To rehearse either one against the simulated robot without moving anything, add `--fake`: `wall_test.py --fake 120` starts 120 cm from a wall, and `stop_button_test.py --fake 0.9` presses Button A at 0.9 s.
 
 ## Running the tests
 
@@ -25,7 +36,7 @@ python3 -m unittest
 
 ## Repo setup
 
-The security workflows, Dependabot config, branch ruleset and pre-commit secret scan come from [repo-template](https://github.com/thedownwardspiral/repo-template); its README explains what each one does. After creating the GitHub repo, run `.github/setup-repo.sh thedownwardspiral/trilobot-scout` once, and `pre-commit install` in each clone.
+The security workflows, Dependabot config, branch ruleset and pre-commit secret scan come from [repo-template](https://github.com/thedownwardspiral/repo-template); its README explains what each one does. `.github/setup-repo.sh` has already been run for this repo; run `pre-commit install` in each clone.
 
 ## Licence
 

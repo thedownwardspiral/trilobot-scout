@@ -21,6 +21,8 @@ that close, so read_distance() then returns NO_READING, as for a lost echo.
 """
 
 import functools
+import heapq
+import itertools
 import math
 from colorsys import hsv_to_rgb
 
@@ -92,7 +94,7 @@ class FakeTrilobot:
 
     # Simulation-only methods that the real Trilobot does not have
     SIMULATION_METHODS = frozenset({
-        'sleep', 'now', 'set_obstacle', 'queue_distances',
+        'sleep', 'now', 'at', 'set_obstacle', 'queue_distances',
         'press_button', 'release_button', 'motor_calls', 'last_motor_call',
         'underlight_color',
     })
@@ -115,6 +117,8 @@ class FakeTrilobot:
         self.read_time_s = read_time_s
 
         self._time = 0.0
+        self._scheduled = []  # heap of (time, order, action)
+        self._schedule_order = itertools.count()
         self._call_depth = 0
         self.calls = []  # (finish time, method name, args, kwargs), outermost calls that returned
 
@@ -148,13 +152,30 @@ class FakeTrilobot:
         return self._time
 
     def sleep(self, seconds):
-        """Advance the simulated clock, moving the robot at the current motor speeds."""
+        """Advance the simulated clock, moving the robot at the current motor speeds.
+
+        Actions scheduled with at() run when the clock reaches their time, in
+        time order, and the motion after each one uses the speeds it left.
+        """
         if seconds < 0:
             raise ValueError("sleep length must be non-negative")
-        if seconds == 0:
-            return
-        self._integrate(seconds)
-        self._time += seconds
+        end = self._time + seconds
+        while self._scheduled and self._scheduled[0][0] <= end:
+            when, _, action = heapq.heappop(self._scheduled)
+            self._advance_to(when)
+            action()
+        self._advance_to(end)
+
+    def at(self, time_s, action):
+        """Run action() when the simulated clock reaches time_s, for example
+        bot.at(0.4, lambda: bot.press_button(BUTTON_A)). A time already passed
+        runs on the next sleep()."""
+        heapq.heappush(self._scheduled, (time_s, next(self._schedule_order), action))
+
+    def _advance_to(self, time_s):
+        if time_s > self._time:
+            self._integrate(time_s - self._time)
+            self._time = time_s
 
     def set_obstacle(self, distance_cm):
         """Put an obstacle distance_cm ahead of the sensor, or None for nothing."""

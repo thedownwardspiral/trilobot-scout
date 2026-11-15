@@ -113,6 +113,38 @@ class TestSimulation(unittest.TestCase):
         bot.sleep(0.25)
         self.assertAlmostEqual(bot.now(), 0.5)
 
+    def test_scheduled_actions_run_at_their_time(self):
+        bot = FakeTrilobot(max_speed_cm_s=40)
+        bot.forward(0.5)  # 20 cm/s
+        bot.at(0.5, bot.stop)
+        bot.at(0.25, lambda: bot.press_button(BUTTON_A))
+        bot.sleep(0.2)
+        self.assertFalse(bot.read_button(BUTTON_A))
+        bot.sleep(1.0)
+        self.assertTrue(bot.read_button(BUTTON_A))
+        self.assertAlmostEqual(bot.distance_travelled_cm, 10)  # stopped at 0.5 s
+        self.assertAlmostEqual(bot.now(), 1.2)
+        self.assertEqual(bot.motor_calls()[-1][:2], (0.5, 'stop'))
+
+    def test_past_and_zero_time_actions_run_on_next_sleep(self):
+        bot = FakeTrilobot()
+        bot.sleep(1)
+        ran = []
+        bot.at(0.5, lambda: ran.append('past'))
+        bot.at(1.0, lambda: ran.append('now'))
+        self.assertEqual(ran, [])
+        bot.sleep(0)
+        self.assertEqual(ran, ['past', 'now'])
+        self.assertEqual(bot.now(), 1)
+
+    def test_actions_at_the_same_time_keep_their_order(self):
+        bot = FakeTrilobot()
+        ran = []
+        for name in 'abc':
+            bot.at(0.1, lambda name=name: ran.append(name))
+        bot.sleep(1)
+        self.assertEqual(ran, ['a', 'b', 'c'])
+
     def test_negative_sleep_is_rejected(self):
         with self.assertRaises(ValueError):
             FakeTrilobot().sleep(-1)
