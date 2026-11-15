@@ -16,7 +16,8 @@ The obstacle model is one-dimensional: `obstacle_cm` is the distance to
 whatever is straight ahead of the sensor (None for nothing). Driving forward or
 backward changes it; turning in place does not. Tests that turn towards or
 away from something set it again with set_obstacle(). Driving into the
-obstacle stops the robot at 0 cm and sets `collided`.
+obstacle stops the robot at 0 cm and sets `collided`; the sensor cannot see
+that close, so read_distance() then returns NO_READING, as for a lost echo.
 """
 
 import functools
@@ -67,18 +68,21 @@ MOTOR_METHODS = frozenset({
 
 
 def _logged(method):
-    """Record a call in FakeTrilobot.calls, but only the outermost one, so stop()
-    is logged as 'stop' and not also as the set_motor_speeds() it calls."""
+    """Record a call in FakeTrilobot.calls once it returns, stamped with the
+    simulated time it finished. Calls that raise are not recorded, and only
+    the outermost call is, so stop() is logged as 'stop' and not also as the
+    set_motor_speeds() it calls."""
     @functools.wraps(method)
     def wrapper(self, *args, **kwargs):
         outermost = self._call_depth == 0
-        if outermost:
-            self.calls.append((self._time, method.__name__, args, kwargs))
         self._call_depth += 1
         try:
-            return method(self, *args, **kwargs)
+            result = method(self, *args, **kwargs)
         finally:
             self._call_depth -= 1
+        if outermost:
+            self.calls.append((self._time, method.__name__, args, kwargs))
+        return result
     return wrapper
 
 
@@ -94,22 +98,25 @@ class FakeTrilobot:
     })
 
     def __init__(self, obstacle_cm=None, max_speed_cm_s=50.0, track_width_cm=12.0,
-                 max_range_cm=400.0, read_time_s=0.0):
+                 min_range_cm=2.0, max_range_cm=400.0, read_time_s=0.0):
         """
         obstacle_cm: distance to the obstacle ahead, or None for nothing ahead
         max_speed_cm_s: ground speed of a wheel at motor speed 1.0
         track_width_cm: distance between the wheels, which sets the turn rate
+        min_range_cm: closer than this (the sensor's blind zone, about 2 cm for
+            an HC-SR04), read_distance() returns NO_READING, as it does after a collision
         max_range_cm: beyond this, read_distance() returns NO_READING
         read_time_s: simulated time each read_distance() call takes
         """
         self.max_speed_cm_s = max_speed_cm_s
         self.track_width_cm = track_width_cm
+        self.min_range_cm = min_range_cm
         self.max_range_cm = max_range_cm
         self.read_time_s = read_time_s
 
         self._time = 0.0
         self._call_depth = 0
-        self.calls = []  # (sim time, method name, args, kwargs), outermost calls only
+        self.calls = []  # (finish time, method name, args, kwargs), outermost calls that returned
 
         # Motors: speeds as the real class would set them, after clamping
         self.left_speed = 0.0
@@ -302,7 +309,8 @@ class FakeTrilobot:
         if self._distance_queue:
             return self._distance_queue.pop(0)
         max_range = min(self.max_range_cm, timeout * TIMEOUT_RANGE_CM_PER_MS)
-        if self.obstacle_cm is None or self.obstacle_cm >= max_range:
+        if self.obstacle_cm is None or self.obstacle_cm >= max_range \
+                or self.obstacle_cm < self.min_range_cm:
             return NO_READING
         return float(self.obstacle_cm)
 

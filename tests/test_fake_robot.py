@@ -85,6 +85,22 @@ class TestCallLog(unittest.TestCase):
     def test_no_motor_calls(self):
         self.assertIsNone(FakeTrilobot().last_motor_call())
 
+    def test_calls_that_raise_are_not_logged(self):
+        bot = FakeTrilobot()
+        bot.stop()
+        with self.assertRaises(ValueError):
+            bot.set_motor_speed(2, 0.5)
+        with self.assertRaises(TypeError):
+            bot.forward('fast')
+        self.assertEqual(bot.last_motor_call(), 'stop')
+        self.assertEqual([call[1] for call in bot.calls], ['stop'])
+
+    def test_calls_are_stamped_when_they_finish(self):
+        bot = FakeTrilobot(read_time_s=0.02)
+        bot.read_distance()
+        self.assertAlmostEqual(bot.calls[-1][0], 0.02)
+        self.assertAlmostEqual(bot.calls[-1][0], bot.now())
+
 
 class TestSimulation(unittest.TestCase):
     def test_clock_only_moves_on_sleep(self):
@@ -171,6 +187,7 @@ class TestSimulation(unittest.TestCase):
         self.assertEqual(bot.obstacle_cm, 0)
         self.assertAlmostEqual(bot.distance_travelled_cm, 30)
         self.assertAlmostEqual(bot.now(), 5)
+        self.assertEqual(bot.read_distance(), NO_READING)  # too close for the sensor
 
     def test_drive_at_wall_and_stop_without_real_sleeping(self):
         # The shape of a milestone 2 reflex test: poll, and stop when close
@@ -197,6 +214,12 @@ class TestDistanceSensor(unittest.TestCase):
         self.assertEqual(bot.read_distance(), NO_READING)
         bot.set_obstacle(399.5)
         self.assertEqual(bot.read_distance(), 399.5)
+
+    def test_inside_the_blind_zone_reads_no_reading(self):
+        bot = FakeTrilobot(obstacle_cm=1.5, min_range_cm=2.0)
+        self.assertEqual(bot.read_distance(), NO_READING)
+        bot.set_obstacle(2.0)
+        self.assertEqual(bot.read_distance(), 2.0)
 
     def test_reading_is_a_float(self):
         self.assertIsInstance(FakeTrilobot(obstacle_cm=42).read_distance(), float)
